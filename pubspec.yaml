@@ -78,6 +78,7 @@ flutter:
     - assets/images/app_logo.png
     - assets/models2/classification_model.tflite
     - assets/models2/nutrition_model.tflite
+    - assets\models2\classification_model.tflite
     - assets/models2/DeepLabV3.tflite
     - assets/raw/
     - assets/raw/c1_classes.txt

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'camera_screen.dart';
+
+
+
 class MyCaloriesScreen extends StatelessWidget {
   const MyCaloriesScreen({Key? key}) : super(key: key);
 

@@ -13,7 +13,7 @@ class DeepLearning {
     final int channels = 3; // نستخدم RGB
     final int numPixels = width * height * channels;
 
-    // الحصول على بيانات الصورة باستخدام getBytes() بدون معلمة format
+    // الحصول على بيانات الصورة باستخدام getBytes() (يُرجى التأكد من أن الصورة تحتوي على بيانات RGB)
     final Uint8List rgbBytes = image.getBytes();
     Float32List buffer = Float32List(numPixels);
 
@@ -23,9 +23,11 @@ class DeepLearning {
     return buffer;
   }
 
-  /// دالة alias للدالة السابقة لتحميل صورة كـ Float32List
+  /// دالة alias لتحويل الصورة إلى Float32List.
   static Float32List loadImageAsFloatList(img.Image image, int width, int height) {
-    return convertImageToFloat32List(image);
+    // تغيير حجم الصورة إلى الأبعاد المطلوبة قبل التحويل
+    img.Image resized = img.copyResize(image, width: width, height: height);
+    return convertImageToFloat32List(resized);
   }
 
   /// دالة شاملة لمعالجة الصورة:
@@ -37,12 +39,11 @@ class DeepLearning {
     if (decodedImage == null) {
       throw Exception('Failed to decode image');
     }
-    // معالجة الصورة: تطبيق segmentation وإعادة الحجم إلى الأبعاد المطلوبة.
-
+    // معالجة الصورة: تطبيق segmentation وإعادة تغيير الحجم إلى أبعاد النموذج الرئيسي
     img.Image processedImage = ImagePreprocessing.preprocessImage(
       decodedImage,
-      AppConstants.inputImageWidth,
-      AppConstants.inputImageHeight,
+      AppConstants.classificationInputWidth, // نستخدم هنا أبعاد نموذج التصنيف (يمكن تغييرها حسب الحاجة)
+      AppConstants.classificationInputHeight,
     );
     return convertImageToFloat32List(processedImage);
   }

@@ -64,7 +64,6 @@ class ResultsScreen extends StatelessWidget {
         Text('البروتين: ${data['protein_g_per_100g']} جرام لكل 100 جرام'),
         Text('الدهون: ${data['fats_g_per_100g']} جرام لكل 100 جرام'),
         Text('الكربوهيدرات: ${data['carbs_g_per_100g']} جرام لكل 100 جرام'),
-        Text('الألياف: ${data['fiber_g_per_100g']} جرام لكل 100 جرام'),
         // يمكنك إضافة حقول أخرى إذا توفرت
       ],
     );

@@ -1,3 +1,4 @@
+// File: lib/screens/CustomCameraScreen.dart
 import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -9,11 +10,14 @@ import '../models/NutritionModelInput.dart';
 import '../models/DishClassification.dart';
 import '../models/DishNutritionRegression.dart';
 import '../utils/DeepLearning.dart';
-// استيراد صفحة النتائج
+// استيراد صفحة النتائج والسجل
 import 'history_data.dart';
 import 'results_screen.dart';
-// استيراد صفحة السجل وإدارة التخزين
 import 'HistoryStorage.dart';
+import '../utils/constants.dart';
+
+
+
 
 class CustomCameraScreen extends StatefulWidget {
   const CustomCameraScreen({Key? key}) : super(key: key);
@@ -80,6 +84,7 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       final image = await _cameraController.takePicture();
       _capturedImage = File(image.path);
       _lastImageFile = _capturedImage;
+      print("تم التقاط الصورة بنجاح. المسار: ${_capturedImage!.path}");
       setState(() {});
     } catch (e) {
       print('Error capturing image: $e');
@@ -90,11 +95,11 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final XFile? pickedFile =
-      await _picker.pickImage(source: ImageSource.gallery);
+      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null) {
         _capturedImage = File(pickedFile.path);
         _lastImageFile = _capturedImage;
+        print("تم اختيار الصورة من المعرض. المسار: ${_capturedImage!.path}");
         setState(() {});
       }
     } catch (e) {
@@ -108,33 +113,61 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
     });
   }
 
+  /// دالة اقتصاص الصورة لتصبح مربعة (1:1)
+  img.Image _cropToSquare(img.Image original) {
+    int width = original.width;
+    int height = original.height;
+    if (width == height) return original;
+    int size = width < height ? width : height;
+    int xOffset = ((width - size) ~/ 2);
+    int yOffset = ((height - size) ~/ 2);
+    return img.copyCrop(
+        original,
+       x: xOffset,
+       y: yOffset,
+        width: size,
+        height: size,
+    );
+  }
+
   Future<void> _processAndProceed() async {
     if (_capturedImage == null) return;
     try {
       final bytes = await _capturedImage!.readAsBytes();
-      final decodedImage = img.decodeImage(bytes);
+      img.Image? decodedImage = img.decodeImage(bytes);
       if (decodedImage == null) {
         throw Exception('Failed to decode image');
       }
+      // قص الصورة لتصبح مربعة إذا لم تكن كذلك
+      decodedImage = _cropToSquare(decodedImage);
+      print("أبعاد الصورة بعد القص: ${decodedImage.width}x${decodedImage.height}");
 
-      final floatList = DeepLearning.loadImageAsFloatList(decodedImage, 300, 300);
+      // تحويل الصورة إلى Float32List بناءً على أبعاد نموذج التصنيف (مثلاً 250x250)
+      final floatListClassification = DeepLearning.loadImageAsFloatList(
+          decodedImage, AppConstants.classificationInputWidth, AppConstants.classificationInputHeight);
+      print("تم تحويل صورة التصنيف إلى Float32List.");
+
+      // تحويل الصورة إلى Float32List بناءً على أبعاد نموذج التغذية (مثلاً 224x224)
+      final floatListNutrition = DeepLearning.loadImageAsFloatList(
+          decodedImage, AppConstants.nutritionInputWidth, AppConstants.nutritionInputHeight);
+      print("تم تحويل صورة التغذية إلى Float32List.");
 
       // التصنيف
-      final classificationInput = ClassificationModelInput(imageData: floatList);
+      final classificationInput = ClassificationModelInput(imageData: floatListClassification);
       final dishClassification = DishClassification();
       await dishClassification.loadModel();
       await dishClassification.loadLabels();
-      final classificationOutput =
-      await dishClassification.classifyDish(classificationInput);
+      final classificationOutput = await dishClassification.classifyDish(classificationInput);
+      print("تم التصنيف: ${classificationOutput.dishName} بنسبة ثقة: ${classificationOutput.confidence}");
 
       // التحليل الغذائي
-      final nutritionInput = NutritionModelInput(imageData: floatList);
+      final nutritionInput = NutritionModelInput(imageData: floatListNutrition);
       final dishNutritionRegression = DishNutritionRegression();
       await dishNutritionRegression.loadModel();
-      final nutritionOutput =
-      await dishNutritionRegression.predictNutrition(nutritionInput);
+      final nutritionOutput = await dishNutritionRegression.predictNutrition(nutritionInput);
+      print("تم التحليل الغذائي: السعرات الحرارية: ${nutritionOutput.calories}");
 
-      // حفظ البيانات في السجل باستخدام SharedPreferences
+      // حفظ البيانات في السجل
       final newEntry = HistoryEntry(
         imagePath: _capturedImage!.path,
         dishName: classificationOutput.dishName,
@@ -145,14 +178,14 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       List<HistoryEntry> historyEntries = await HistoryStorage.loadHistory();
       historyEntries.add(newEntry);
       await HistoryStorage.saveHistory(historyEntries);
+      print("تم حفظ بيانات الوجبة في السجل.");
 
-      // الانتقال إلى صفحة النتائج
+      // الانتقال إلى شاشة النتائج
       final Map<String, dynamic> nutritionData = {
         'calories_per_100g': nutritionOutput.calories,
         'protein_g_per_100g': nutritionOutput.protein,
         'fats_g_per_100g': nutritionOutput.fat,
         'carbs_g_per_100g': nutritionOutput.carbs,
-        'fiber_g_per_100g': nutritionOutput.fiber ?? 0,
       };
 
       Navigator.push(
@@ -174,7 +207,6 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // الحصول على عرض الشاشة لتحديد حجم الإطار المربع
     final screenWidth = MediaQuery.of(context).size.width;
     return Scaffold(
       appBar: AppBar(
@@ -196,77 +228,68 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.done) {
             if (_capturedImage == null) {
-              return Stack(
-                children: [
-                  // عرض معاينة الكاميرا ضمن إطار مربع يغطي عرض الشاشة
-                  Center(
-                    child: ClipRect(
+              return Center(
+                child: Stack(
+                  children: [
+                    Center(
                       child: SizedBox(
                         width: screenWidth,
                         height: screenWidth,
-                        child: CameraPreview(_cameraController),
-                      ),
-                    ),
-                  ),
-                  // إطار مربع يظهر في وسط الشاشة لتأكيد أن المعاينة مربعة
-                  Center(
-                    child: Container(
-                      width: screenWidth,
-                      height: screenWidth,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white, width: 3),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 50,
-                    left: 20,
-                    right: 20,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // الدائرة الصغيرة لعرض آخر صورة من المعرض
-                        GestureDetector(
-                          onTap: _pickImage,
-                          child: Container(
-                            width: 50,
-                            height: 50,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                              color: Colors.black26,
+                        child: Stack(
+                          children: [
+                            CameraPreview(_cameraController),
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: CameraOverlayPainter(),
+                              ),
                             ),
-                            child: _lastImageFile == null
-                                ? const Icon(
-                              Icons.photo_library,
-                              color: Colors.white,
-                            )
-                                : ClipOval(
-                              child: Image.file(
-                                _lastImageFile!,
-                                fit: BoxFit.cover,
+                          ],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 50,
+                      left: 20,
+                      right: 20,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // زر المعرض
+                          GestureDetector(
+                            onTap: _pickImage,
+                            child: Container(
+                              width: 50,
+                              height: 50,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                                color: Colors.black26,
+                              ),
+                              child: _lastImageFile == null
+                                  ? const Icon(Icons.photo_library, color: Colors.white)
+                                  : ClipOval(
+                                child: Image.file(
+                                  _lastImageFile!,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        // زر التقاط الصورة
-                        FloatingActionButton(
-                          onPressed: _captureImage,
-                          backgroundColor: Colors.white,
-                          child: const Icon(
-                            Icons.camera_alt,
-                            color: Colors.black,
+                          // زر الكاميرا
+                          FloatingActionButton(
+                            onPressed: _captureImage,
+                            backgroundColor: Colors.white,
+                            child: const Icon(Icons.camera_alt, color: Colors.black),
                           ),
-                        ),
-                        // مساحة افتراضية
-                        const SizedBox(width: 50),
-                      ],
+                          const SizedBox(width: 50),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             } else {
-              // عرض المعاينة مع أزرار الإلغاء والموافقة
+              // معاينة الصورة بعد الالتقاط
               return Column(
                 children: [
                   Expanded(child: Image.file(_capturedImage!)),
@@ -298,4 +321,36 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       ),
     );
   }
+}
+
+/// CustomPainter لرسم تراكب إطار الكاميرا مع أحرف L في كل زاوية
+class CameraOverlayPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke;
+
+    final double cornerLength = 20.0;
+
+    // الزاوية العلوية اليسرى
+    canvas.drawLine(Offset(0, 0), Offset(cornerLength, 0), paint);
+    canvas.drawLine(Offset(0, 0), Offset(0, cornerLength), paint);
+
+    // الزاوية العلوية اليمنى
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width - cornerLength, 0), paint);
+    canvas.drawLine(Offset(size.width, 0), Offset(size.width, cornerLength), paint);
+
+    // الزاوية السفلية اليسرى
+    canvas.drawLine(Offset(0, size.width), Offset(0, size.width - cornerLength), paint);
+    canvas.drawLine(Offset(0, size.width), Offset(cornerLength, size.width), paint);
+
+    // الزاوية السفلية اليمنى
+    canvas.drawLine(Offset(size.width, size.width), Offset(size.width - cornerLength, size.width), paint);
+    canvas.drawLine(Offset(size.width, size.width), Offset(size.width, size.width - cornerLength), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -4,7 +4,6 @@ import 'camera_screen.dart';
 import 'dashboard_screen.dart';
 import 'history_screen.dart';
 import 'my_calories_screen.dart';
-import 'user_type_page.dart';
 import 'settings_screen.dart';
 
 class MainScreen extends StatefulWidget {
