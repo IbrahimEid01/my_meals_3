@@ -1,97 +1,220 @@
-// File: lib/utils/ImagePreprocessing.dart
+// lib/utils/ImagePreprocessing.dart
+import 'dart:developer';
+import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'constants.dart';
-import 'package:tflite_flutter/tflite_flutter.dart' as tfl;
+import 'package:tflite_flutter/tflite_flutter.dart';
+// استيراد TensorType مباشرة إذا لزم الأمر, لكنه عادة جزء من tflite_flutter
+// import 'package:tflite_flutter/src/tensor.dart'; // <-- قد لا يكون ضرورياً
 
 class ImagePreprocessing {
-  static tfl.Interpreter? _interpreter;
+  static Interpreter? _interpreter;
+  static bool _isLoaded = false;
+  static List<int>? _inputShape;
+  static TensorType? _inputType; // <-- النوع الصحيح
+  static List<int>? _outputShape;
+  static TensorType? _outputType; // <-- النوع الصحيح
 
-  /// تحميل نموذج DeepLabV3 من الأصول.
   static Future<void> loadDeepLabModel() async {
+    // ... (نفس كود التحميل والتحقق من المرة السابقة باستخدام TensorType) ...
+    if (_isLoaded) {
+      log("DeepLabV3 model already loaded.");
+      return;
+    }
     try {
-      _interpreter = await tfl.Interpreter.fromAsset(AppConstants.segmentationModelPath);
-      print("✅ DeepLabV3 model loaded successfully!");
+      final interpreterOptions = InterpreterOptions();
+      _interpreter = await Interpreter.fromAsset(
+          AppConstants.segmentationModelPath,
+          options: interpreterOptions);
+
+      var inputTensors = _interpreter!.getInputTensors();
+      var outputTensors = _interpreter!.getOutputTensors();
+
+      _inputShape = inputTensors.first.shape;
+      _inputType = inputTensors.first.type;   // <-- النوع الصحيح
+      _outputShape = outputTensors.first.shape;
+      _outputType = outputTensors.first.type; // <-- النوع الصحيح
+
+      _isLoaded = true;
+      log("✅ DeepLabV3 model loaded successfully!");
+      log('DeepLab Input: Shape=$_inputShape, Type=$_inputType');
+      log('DeepLab Output: Shape=$_outputShape, Type=$_outputType');
+
+      if (_inputShape == null || _inputShape!.length != 4 || _inputShape![1] != AppConstants.segmentationInputSize || _inputShape![2] != AppConstants.segmentationInputSize) {
+        log("Warning: DeepLab input shape $_inputShape does not match expected [1, ${AppConstants.segmentationInputSize}, ${AppConstants.segmentationInputSize}, 3]");
+      }
+      // --- استخدام TensorType للمقارنة ---
+      if (_outputType != TensorType.int32 && _outputType != TensorType.float32 && _outputType != TensorType.int64) {
+        log("Warning: DeepLab output type $_outputType is not the expected INT32, FLOAT32, or INT64. Mask creation might fail.");
+      }
+
     } catch (e) {
-      print("❌ Error loading DeepLabV3 model: $e");
-      rethrow;
+      log("❌ Error loading DeepLabV3 model: $e");
+      _interpreter = null;
+      _isLoaded = false;
     }
   }
 
-  /// دالة applySegmentation: تُطبق نموذج DeepLabV3 لتقسيم الصورة بحيث تُعيد صورة تحتوي على منطقة الطعام فقط.
-  static img.Image applySegmentation(img.Image image) {
-    if (_interpreter == null) {
-      print("لم يتم تحميل نموذج DeepLabV3، إعادة الصورة كما هي.");
+  static Future<img.Image> applySegmentation(img.Image image) async {
+    // ... (نفس كود بداية الدالة وتجهيز المدخلات والمخرجات من المرة السابقة باستخدام TensorType) ...
+    if (!_isLoaded || _interpreter == null || _inputShape == null || _outputShape == null) {
+      log("Segmentation skipped: DeepLabV3 model not ready.");
+      return image;
+    }
+    log("Applying DeepLabV3 segmentation...");
+
+    final int segHeight = _inputShape![1];
+    final int segWidth = _inputShape![2];
+
+    img.Image resizedForSegmentation = img.copyResize(image, width: segWidth, height: segHeight);
+    log("Image resized for segmentation: ${segWidth}x$segHeight");
+
+    Float32List inputBytes = _prepareInputTensor(resizedForSegmentation);
+    var inputTensor = inputBytes.buffer.asFloat32List().reshape(_inputShape!);
+
+    Object outputTensor;
+    // --- استخدام TensorType للمقارنة ---
+    if (_outputType == TensorType.int32 || _outputType == TensorType.int64) {
+      outputTensor = List.filled(_outputShape!.reduce((a, b) => a * b), 0).reshape(_outputShape!);
+    } else if (_outputType == TensorType.float32) {
+      outputTensor = List.filled(_outputShape!.reduce((a, b) => a * b), 0.0).reshape(_outputShape!);
+    } else {
+      log("Error: Unsupported DeepLab output type: $_outputType");
       return image;
     }
 
-    // تغيير حجم الصورة لتتناسب مع مدخلات نموذج التقسيم
-    int segWidth = AppConstants.segmentationInputWidth;
-    int segHeight = AppConstants.segmentationInputHeight;
-    img.Image resizedForSegmentation = img.copyResize(image, width: segWidth, height: segHeight);
-    print("تم تغيير حجم الصورة لمدخلات نموذج التقسيم: ${segWidth}x${segHeight}");
 
-    // تجهيز بيانات الإدخال: إنشاء مصفوفة ثلاثية الأبعاد [segHeight, segWidth, 3]
-    List<List<List<double>>> inputData = List.generate(segHeight, (y) {
-      return List.generate(segWidth, (x) {
-        int pixel = resizedForSegmentation.getPixel(x, y) as int;
-        return [
-          ((pixel >> 16) & 0xFF) / AppConstants.normalizationFactor,
-          ((pixel >> 8) & 0xFF) / AppConstants.normalizationFactor,
-          (pixel & 0xFF) / AppConstants.normalizationFactor,
-        ];
-      });
-    });
+    try {
+      log("Running segmentation inference...");
+      _interpreter!.run(inputTensor, outputTensor);
+      log("Segmentation inference completed.");
+    } catch (e) {
+      log("Error during segmentation inference: $e");
+      return image;
+    }
 
-    // تجهيز بيانات الإخراج: نفترض أن النموذج يُخرج 21 قناة لكل بكسل
-    List<List<List<double>>> outputData = List.generate(segHeight, (y) {
-      return List.generate(segWidth, (x) => List.filled(21, 0.0));
-    });
+    try {
+      log("Creating segmentation mask...");
+      img.Image segmentationMask = img.Image(width: segWidth, height: segHeight, numChannels: 4);
 
-    // تشغيل النموذج على بيانات الإدخال
-    _interpreter!.run(inputData, outputData);
-    print("تم تشغيل نموذج التقسيم على بيانات الإدخال.");
+      // --- استخدام TensorType للمقارنة ---
+      if (_outputType == TensorType.int32 || _outputType == TensorType.int64) {
+        // ... (نفس كود معالجة مخرجات int من المرة السابقة) ...
+        List<int> outputIntDataFlat;
+        // يجب تعديل طريقة الوصول للبيانات بناءً على شكل المخرج الفعلي
+        // هذا مثال قد يحتاج لتعديل:
+        if (outputTensor is List<List<List<List<int>>>>) {
+          outputIntDataFlat = outputTensor.expand((l1) => l1).expand((l2) => l2).expand((l3) => l3).toList();
+        } else if (outputTensor is List<List<List<int>>>) { // [1, H, W] ?
+          outputIntDataFlat = outputTensor.expand((l1) => l1).expand((l2) => l2).toList();
+        }
+        else {
+          log("Error: Cannot interpret INT32/INT64 output shape: $_outputShape");
+          return image;
+        }
 
-    // إنشاء خريطة تقسيم بحجم الصورة المصغرة
-    img.Image segmentationMap = img.Image(
-      width: segWidth,
-      height: segHeight,
-      numChannels: 4,
-      backgroundColor: img.ColorInt8.rgba(0, 0, 0, 0),
-    );
-
-    // لكل بكسل في الصورة المصغرة، نبحث عن الفئة ذات القيمة الأعلى
-    for (int y = 0; y < segHeight; y++) {
-      for (int x = 0; x < segWidth; x++) {
-        int maxIndex = 0;
-        double maxValue = outputData[y][x][0];
-        for (int i = 1; i < 21; i++) {
-          if (outputData[y][x][i] > maxValue) {
-            maxValue = outputData[y][x][i];
-            maxIndex = i;
+        for (int i = 0; i < segWidth * segHeight; i++) {
+          int y = i ~/ segWidth;
+          int x = i % segWidth;
+          int predictedClass = outputIntDataFlat[i];
+          if (predictedClass == AppConstants.segmentationFoodClassIndex) { // <-- استخدام الثابت الصحيح
+            segmentationMask.setPixel(x, y, resizedForSegmentation.getPixel(x,y));
+          } else {
+            segmentationMask.setPixelRgba(x, y, 0, 0, 0, 0);
           }
         }
-        // إذا كانت الفئة 1 (نفترض أن 1 تمثل الطعام)، نحتفظ بالبكسل من الصورة الأصلية
-        if (maxIndex == 1) {
-          int origPixel = resizedForSegmentation.getPixel(x, y) as int;
-          segmentationMap.setPixel(x, y, origPixel as img.Color);
+
+      } else if (_outputType == TensorType.float32) {
+        // ... (نفس كود معالجة مخرجات float32 من المرة السابقة) ...
+        if (_outputShape!.length == 4 && _outputShape![3] == 1) {
+          // ... (منطق العتبة threshold) ...
+        }
+        else if (_outputShape!.length == 4 && _outputShape![3] > 1) {
+          // ... (منطق ArgMax) ...
+          var outputProbData = outputTensor as List<List<List<List<double>>>>;
+          int numClasses = _outputShape![3];
+          for (int y = 0; y < segHeight; y++) {
+            for (int x = 0; x < segWidth; x++) {
+              int bestClass = 0;
+              double maxProb = -1.0;
+              for (int c = 0; c < numClasses; c++) {
+                if (outputProbData[0][y][x][c] > maxProb) {
+                  maxProb = outputProbData[0][y][x][c];
+                  bestClass = c;
+                }
+              }
+              if (bestClass == AppConstants.segmentationFoodClassIndex) { // <-- استخدام الثابت الصحيح
+                segmentationMask.setPixel(x, y, resizedForSegmentation.getPixel(x,y));
+              } else {
+                segmentationMask.setPixelRgba(x, y, 0, 0, 0, 0);
+              }
+            }
+          }
         } else {
-          segmentationMap.setPixel(x, y, img.ColorInt8.rgba(0, 0, 0, 0)); // تعيين البكسل لخلفية شفافة
+          log("Error: Unexpected float32 output shape for segmentation: $_outputShape");
+          return image;
         }
       }
-    }
-    print("تم إنشاء خريطة التقسيم.");
 
-    // إعادة تغيير حجم خريطة التقسيم إلى الأبعاد الأصلية للصورة
-    img.Image finalSegmented = img.copyResize(segmentationMap, width: image.width, height: image.height);
-    print("تم تغيير حجم خريطة التقسيم لتطابق أبعاد الصورة الأصلية: ${finalSegmented.width}x${finalSegmented.height}");
-    return finalSegmented;
+      log("Segmentation mask created.");
+
+      img.Image finalMask = img.copyResize(segmentationMask, width: image.width, height: image.height);
+      log("Segmented mask resized back to original dimensions.");
+
+      img.Image maskedImage = img.Image(width: image.width, height: image.height, numChannels: 4);
+      for (int y = 0; y < image.height; y++) {
+        for (int x = 0; x < image.width; x++) {
+          var maskPixelValue = finalMask.getPixel(x, y); // يحصل على كائن Pixel
+          // --- الوصول لقناة ألفا مباشرة ---
+          int alpha = maskPixelValue.a.toInt(); // <-- التصحيح هنا
+
+          if (alpha > 128) {
+            maskedImage.setPixel(x, y, image.getPixel(x, y));
+          } else {
+            maskedImage.setPixelRgba(x, y, 0, 0, 0, 0);
+          }
+        }
+      }
+      log("Original image masked successfully.");
+      return maskedImage;
+
+    } catch (e) {
+      log("Error processing segmentation output: $e");
+      return image;
+    }
   }
 
-  /// دالة معالجة نهائية تشمل:
-  /// - تطبيق segmentation باستخدام نموذج DeepLabV3.
-  /// - تغيير حجم الصورة إلى الأبعاد المطلوبة للنموذج الرئيسي.
-  static img.Image preprocessImage(img.Image image, int targetWidth, int targetHeight) {
-    img.Image segmentedImage = applySegmentation(image);
-    return img.copyResize(segmentedImage, width: targetWidth, height: targetHeight);
+  /// تجهيز Float32List للصورة (باستخدام الطريقة القديمة للبكسل)
+  static Float32List _prepareInputTensor(img.Image image) {
+    // ... (نفس الكود من المرة السابقة لاستخدام الطريقة القديمة) ...
+    final int W = image.width;
+    final int H = image.height;
+    var buffer = Float32List(1 * W * H * 3);
+    int pixelIndex = 0;
+
+    Uint32List intValues = image.data!.buffer.asUint32List();
+
+    for (int i = 0; i < W * H; i++) {
+      int value = intValues[i];
+      // نفترض ABGR
+      int r = value & 0xFF;
+      int g = (value >> 8) & 0xFF;
+      int b = (value >> 16) & 0xFF;
+
+      buffer[pixelIndex++] = r / AppConstants.normalizationFactor;
+      buffer[pixelIndex++] = g / AppConstants.normalizationFactor;
+      buffer[pixelIndex++] = b / AppConstants.normalizationFactor;
+    }
+    return buffer;
+  }
+
+  void close() {
+    // ... (نفس كود الإغلاق) ...
+    if (_interpreter != null) {
+      _interpreter!.close();
+      _interpreter = null;
+      _isLoaded = false;
+      log('Segmentation interpreter closed.');
+    }
   }
 }

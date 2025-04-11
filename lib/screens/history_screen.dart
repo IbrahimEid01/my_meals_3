@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'HistoryStorage.dart';
-import 'history_data.dart';
-
+import '../models/HistoryEntry.dart';
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({Key? key}) : super(key: key);
 
@@ -57,3 +56,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 }
+
+
+

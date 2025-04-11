@@ -1,95 +1,116 @@
-import 'dart:async';
+// lib/logic/DishClassification.dart
+import 'dart:developer';
 import 'dart:typed_data';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show rootBundle; // لاستخدام rootBundle لقراءة الملف
 import 'package:tflite_flutter/tflite_flutter.dart';
-import '../models/ClassificationModelInput.dart';
-import '../models/ClassificationModelOutput.dart';
+import '../models/ClassificationModelInput.dart'; // تأكد من المسار الصحيح
+import '../models/ClassificationModelOutput.dart'; // تأكد من المسار الصحيح
+import '../utils/constants.dart'; // تأكد من المسار الصحيح
 
 class DishClassification {
   Interpreter? _interpreter;
-  List<String> _labels = [];
+  List<String>? _labels;
 
-  // تحميل النموذج
-  Future<void> loadModel() async {
+  DishClassification() {
+    _loadModel();
+    _loadLabels();
+  }
+
+  Future<void> _loadModel() async {
     try {
-      // يفترض وجود الملف في assets/ClassificationModel.tflite
-      _interpreter = await Interpreter.fromAsset('assets/models2/classification_model.tflite');
-      print('Classification Model loaded successfully');
+      // تخصيص خيارات للمترجم (اختياري, يمكن إضافة تسريع GPU هنا)
+      final interpreterOptions = InterpreterOptions();
+
+      _interpreter = await Interpreter.fromAsset(
+        AppConstants.classificationModelPath,
+        options: interpreterOptions,
+      );
+      log('Classification model loaded successfully.');
+      // طباعة تفاصيل المدخلات والمخرجات للتحقق
+      log('Input tensor details: ${_interpreter?.getInputTensors()}');
+      log('Output tensor details: ${_interpreter?.getOutputTensors()}');
     } catch (e) {
-      print('Error loading classification model: $e');
+      log('Error loading classification model: $e');
     }
   }
 
-  // تحميل التصنيفات (الليبلز)
-  Future<void> loadLabels() async {
+  Future<void> _loadLabels() async {
     try {
-      // يفترض وجود الملف في assets/c1_classes.txt
-      final labelTxt = await rootBundle.loadString('assets/raw/c1_classes.txt');
-      _labels = labelTxt
-          .split('\n')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      print('Labels loaded successfully, count=${_labels.length}');
+      final labelsData = await rootBundle.loadString(AppConstants.classificationLabelsPath);
+      _labels = labelsData.split('\n').map((label) => label.trim()).where((label) => label.isNotEmpty).toList();
+      log('Classification labels loaded successfully. Count: ${_labels?.length}');
+      if (_labels != null && _labels!.length != 101) {
+        log('Warning: Expected 101 labels, but found ${_labels!.length}');
+      }
     } catch (e) {
-      print('Error loading labels: $e');
+      log('Error loading classification labels: $e');
     }
   }
 
-  // دالة التصنيف الرئيسية
   Future<ClassificationModelOutput> classifyDish(ClassificationModelInput input) async {
-    // إذا لم يكن النموذج أو الليبلز جاهزين، نحملهما
-    if (_interpreter == null) {
-      await loadModel();
-    }
-    if (_labels.isEmpty) {
-      await loadLabels();
-    }
-
-    if (_interpreter == null || _labels.isEmpty) {
-      throw Exception("Error: Model or labels not loaded in classifyDish");
+    if (_interpreter == null || _labels == null) {
+      log('Error: Classification model or labels not loaded.');
+      // يمكنك إرجاع خطأ أو قيمة افتراضية
+      return ClassificationModelOutput(dishName: 'Error: Model not ready', confidence: 0.0, servingSize: ''); // اضف servingSize اذا كانت موجودة
     }
 
     try {
-      // 1) تحويل List<double> إلى Float32List
-      // نفترض شكل الإدخال [1, 300, 300, 3]
-      // أي 300*300*3 = 270000 قيمة (لكل بكسل 3 قيم)
-      final inputBuffer = Float32List.fromList(input.imageData).buffer;
+      // تجهيز بيانات الإدخال
+      // الشكل المطلوب [1, 250, 250, 3]
+      // الكلاس يتوقع List<double>, نحول Float32List إليها
+      var inputList = Float32List.fromList(input.imageData);
+      // نتأكد من حجم المدخلات
+      int expectedInputSize = 1 * AppConstants.classificationInputSize * AppConstants.classificationInputSize * 3;
+      if (inputList.length != expectedInputSize) {
+        log('Error: Classification input data size mismatch! Expected ${expectedInputSize}, got ${inputList.length}');
+        throw Exception('Input size mismatch');
+      }
+      var inputTensor = [inputList.buffer.asFloat32List().reshape([1, AppConstants.classificationInputSize, AppConstants.classificationInputSize, 3])];
 
-      // 2) تجهيز مصفوفة الإخراج
-      // نفترض عدد التصنيفات = عدد الأسطر في ملف _labels
-      final outputBuffer = Float32List(_labels.length).buffer;
 
-      // 3) تنفيذ الاستدلال
-      _interpreter!.run(inputBuffer, outputBuffer);
+      // تجهيز بيانات الإخراج
+      // الشكل المتوقع [1, 101] (بناءً على الكود السابق)
+      var outputTensor = List.filled(1 * 101, 0.0).reshape([1, 101]); // 101 فئة
 
-      // 4) استخراج نتائج الإخراج وتحويلها إلى List<double>
-      final output = outputBuffer.asFloat32List();
+      log('Running classification inference...');
+      // تشغيل النموذج
+      _interpreter!.run(inputTensor[0], outputTensor);
+      log('Classification inference completed.');
 
-      // 5) إيجاد أعلى قيمة (confidence)
-      int maxIndex = 0;
-      double maxVal = output[0];
-      for (int i = 1; i < output.length; i++) {
-        if (output[i] > maxVal) {
-          maxVal = output[i];
-          maxIndex = i;
+      // معالجة المخرجات
+      List<double> outputList = outputTensor[0].cast<double>();
+      int bestIndex = 0;
+      double maxConfidence = 0.0;
+
+      for (int i = 0; i < outputList.length; i++) {
+        if (outputList[i] > maxConfidence) {
+          maxConfidence = outputList[i];
+          bestIndex = i;
         }
       }
 
-      // 6) إنشاء كائن المخرجات مع تمرير الحقول المطلوبة
-      final dishName = (maxIndex < _labels.length) ? _labels[maxIndex] : 'Unknown';
-      return ClassificationModelOutput(
-        dishName: dishName,
-        confidence: maxVal,
-        servingSize: "غير متوفر", // أو يمكنك تعديلها حسب ما يعيده النموذج
-      );
+      // التحقق من أن الفهرس ضمن حدود قائمة التسميات
+      if (bestIndex >= 0 && bestIndex < _labels!.length) {
+        String predictedLabel = _labels![bestIndex];
+        log('Classification result: Label=$predictedLabel, Confidence=$maxConfidence, Index=$bestIndex');
+        return ClassificationModelOutput(
+            dishName: predictedLabel,
+            confidence: maxConfidence,
+            servingSize: '' // اضف servingSize اذا كانت موجودة
+        );
+      } else {
+        log('Error: Best index ($bestIndex) is out of bounds for labels list (size: ${_labels!.length}).');
+        return ClassificationModelOutput(dishName: 'Error: Index out of bounds', confidence: 0.0, servingSize: '');
+      }
     } catch (e) {
-      print('Error classifying dish: $e');
-      return ClassificationModelOutput(
-        dishName: "Unknown",
-        confidence: 0.0,
-        servingSize: "غير متوفر",
-      );
+      log('Error during classification inference: $e');
+      return ClassificationModelOutput(dishName: 'Error: Inference failed', confidence: 0.0, servingSize: '');
     }
+  }
+
+  // يمكنك إضافة دالة لتحرير الموارد عند عدم الحاجة للكلاس
+  void close() {
+    _interpreter?.close();
+    log('Classification interpreter closed.');
   }
 }
