@@ -1,26 +1,23 @@
-// lib/screens/CustomCameraScreen.dart
-import 'dart:async';
-import 'dart:developer'; // لاستخدام log
+import 'dart:developer';
 import 'dart:io';
-import 'dart:math' hide log;
-import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image/image.dart' as img; // لاستخدام مكتبة image
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
-
-import '../models/ClassificationModelInput.dart';
-import '../models/ClassificationModelOutput.dart';
-import '../models/NutritionModelInput.dart';
-import '../models/NutritionModelOutput.dart';
-import '../models/DishClassification.dart';
-import '../models/DishNutritionRegression.dart';
-import '../models/HistoryEntry.dart';
-import '../utils/DeepLearning.dart';
-import '../utils/constants.dart';
-import 'HistoryStorage.dart';
+import 'package:my_meals_3/models/DishClassification.dart';
+import 'package:my_meals_3/models/DishNutritionRegression.dart';
+import 'package:my_meals_3/models/ClassificationModelInput.dart';
+import 'package:my_meals_3/models/ClassificationModelOutput.dart';
+import 'package:my_meals_3/models/HistoryEntry.dart';
+import 'package:my_meals_3/models/NutritionModelInput.dart';
+import 'package:my_meals_3/models/NutritionModelOutput.dart';
+import 'package:my_meals_3/utils/DeepLearning.dart';
+import 'package:my_meals_3/screens/HistoryStorage.dart';
+import 'package:my_meals_3/utils/constants.dart';
 import 'results_screen.dart';
+import 'dart:typed_data';
+import 'dart:math' hide log;
 
 class CustomCameraScreen extends StatefulWidget {
   const CustomCameraScreen({Key? key}) : super(key: key);
@@ -30,191 +27,112 @@ class CustomCameraScreen extends StatefulWidget {
 }
 
 class _CustomCameraScreenState extends State<CustomCameraScreen> {
-  late CameraController _cameraController;
-  late Future<void> _initializeControllerFuture;
+  CameraController? _cameraController;
+  Future<void>? _initializeControllerFuture;
   final ImagePicker _picker = ImagePicker();
-
   File? _capturedImage;
   bool _isProcessing = false;
   bool _isFlashOn = false;
   File? _lastImageFile;
-
-  // إنشاء كائنات لتحليل الأطباق
   final DishClassification _dishClassification = DishClassification();
   final DishNutritionRegression _dishNutritionRegression = DishNutritionRegression();
+  FToast? fToast;
 
   @override
   void initState() {
     super.initState();
     _initializeControllerFuture = _initCamera();
+    fToast = FToast();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) fToast!.init(context);
+    });
     log("CustomCameraScreen initialized.");
   }
 
   Future<void> _initCamera() async {
     try {
+      log("Initializing camera...");
       final cameras = await availableCameras();
-      // استخدام الكاميرا الخلفية
+      if (cameras.isEmpty) {
+        log("Error: No cameras available.");
+        throw Exception("No cameras available on this device.");
+      }
       final firstCamera = cameras.firstWhere(
-            (camera) => camera.lensDirection == CameraLensDirection.back,
-        orElse: () => cameras.first,
-      );
+              (camera) => camera.lensDirection == CameraLensDirection.back,
+          orElse: () => cameras.first);
+
       _cameraController = CameraController(
         firstCamera,
         ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
-      await _cameraController.initialize();
-      if (mounted) setState(() {});
-      log("Camera initialized successfully.");
+
+      await _cameraController!.initialize();
+      log("Camera controller initialized successfully.");
     } catch (e) {
-      log("Error initializing camera: $e");
-      if (mounted) _showErrorSnackBar('Failed to initialize camera: $e');
+      log('Error initializing camera: $e');
+      throw Exception('Failed to initialize camera: $e');
     }
-  }
-
-  Future<void> _toggleFlash() async {
-    if (!_cameraController.value.isInitialized) {
-      log("Flash toggle failed: Camera not initialized.");
-      return;
-    }
-    try {
-      await _initializeControllerFuture;
-      final currentMode = _cameraController.value.flashMode;
-      final nextMode = currentMode == FlashMode.off ? FlashMode.torch : FlashMode.off;
-      await _cameraController.setFlashMode(nextMode);
-      _isFlashOn = nextMode == FlashMode.torch;
-      if (mounted) setState(() {});
-      log("Flash mode set to: $nextMode");
-    } catch (e) {
-      log("Error toggling flash: $e");
-      _showErrorSnackBar('Failed to toggle flash: $e');
-    }
-  }
-
-  Future<void> _captureImage() async {
-    if (_isProcessing) return;
-    if (!_cameraController.value.isInitialized) {
-      log("Capture failed: Camera not initialized.");
-      return;
-    }
-    try {
-      await _initializeControllerFuture;
-      log("Taking picture...");
-      final image = await _cameraController.takePicture();
-      _capturedImage = File(image.path);
-      _lastImageFile = _capturedImage;
-      log("Picture taken successfully: ${_capturedImage!.path}");
-      if (mounted) setState(() {});
-      _showInfoSnackBar("Picture captured!");
-    } catch (e) {
-      log("Error capturing image: $e");
-      _showErrorSnackBar('Failed to capture image: $e');
-    }
-  }
-
-  Future<void> _pickImage() async {
-    if (_isProcessing) return;
-    try {
-      log("Picking image from gallery...");
-      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-      if (pickedFile != null) {
-        _capturedImage = File(pickedFile.path);
-        _lastImageFile = _capturedImage;
-        log("Image picked successfully: ${pickedFile.path}");
-        if (mounted) setState(() {});
-        _showInfoSnackBar("Image selected!");
-      } else {
-        log("Image picking cancelled by user.");
-      }
-    } catch (e) {
-      log("Error picking image: $e");
-      _showErrorSnackBar('Failed to pick image: $e');
-    }
-  }
-
-  void _discardImage() {
-    log("Discarding captured image.");
-    if (mounted) {
-      setState(() {
-        _capturedImage = null;
-        _isProcessing = false;
-      });
-    }
-  }
-
-  /// دالة اقتصاص الصورة لتصبح مربعة (1:1)
-  img.Image _cropToSquare(img.Image original) {
-    int width = original.width;
-    int height = original.height;
-    int size = width < height ? width : height;
-    int xOffset = ((width - size) ~/ 2);
-    int yOffset = ((height - size) ~/ 2);
-    return img.copyCrop(original, x: xOffset, y: yOffset, width: size, height: size);
   }
 
   Future<void> _processAndProceed() async {
     if (_capturedImage == null) {
       log("Processing skipped: No image captured.");
+      _showToast("الرجاء التقاط صورة أولاً", Colors.orange);
       return;
     }
     if (_isProcessing) return;
-    setState(() => _isProcessing = true);
-    _showInfoSnackBar("Processing image...");
+    if (fToast == null) fToast = FToast()..init(context);
 
+    setState(() => _isProcessing = true);
+    _showToast("جاري معالجة الصورة...", Colors.blueGrey);
     try {
       log("Starting image processing pipeline...");
       final bytes = await _capturedImage!.readAsBytes();
-      img.Image? decodedImage = img.decodeImage(bytes);
-      if (decodedImage == null) {
-        throw Exception('Failed to decode image');
-      }
-      log("Image decoded successfully (${decodedImage.width}x${decodedImage.height}).");
 
-      // اقتصاص الصورة لتصبح مربعة 1:1
-      decodedImage = _cropToSquare(decodedImage);
-      log("Image cropped to square: ${decodedImage.width}x${decodedImage.height}");
-
-      // تجهيز بيانات نموذج التصنيف
+      // --- المعالجة لنموذج التصنيف (250×250 بدون تقسيم) ---
       log("Preprocessing for Classification (${AppConstants.classificationInputSize}x${AppConstants.classificationInputSize})...");
-      // نفترض أن DeepLearning.loadImageAndPreprocess تقوم بإرجاع Float32List
       Float32List inputDataClass = await DeepLearning.loadImageAndPreprocess(
-        bytes,
-        AppConstants.classificationInputSize,
-        applySegmentation: true,
+          bytes,
+          AppConstants.classificationInputSize,
+          applySegmentation: false
       );
       final classificationInput = ClassificationModelInput(
           imageData: inputDataClass.buffer.asFloat32List().cast<double>().toList()
       );
 
-      // تشغيل نموذج التصنيف
-      ClassificationModelOutput classificationOutput = await _dishClassification.classifyDish(classificationInput);
-      log("Classification Result: ${classificationOutput.dishName} (Conf: ${classificationOutput.confidence})");
-
-      if (classificationOutput.dishName.contains("Error")) {
-        throw Exception("Classification failed: ${classificationOutput.dishName}");
-      }
-
-      // تجهيز بيانات نموذج التغذية
-      log("Preprocessing for Nutrition (${AppConstants.nutritionInputSize}x${AppConstants.nutritionInputSize})...");
+      // --- المعالجة لنموذج التغذية (224×224 مع تقسيم لتفريغ الخلفية) ---
+      log("Preprocessing for Nutrition (${AppConstants.nutritionInputSize}x${AppConstants.nutritionInputSize}) with segmentation...");
       Float32List inputDataNutr = await DeepLearning.loadImageAndPreprocess(
-        bytes,
-        AppConstants.nutritionInputSize,
-        applySegmentation: true,
+          bytes,
+          AppConstants.nutritionInputSize,
+          applySegmentation: true
       );
       final nutritionInput = NutritionModelInput(
           imageData: inputDataNutr.buffer.asFloat32List().cast<double>().toList()
       );
 
-      // تشغيل نموذج التغذية
-      NutritionModelOutput nutritionOutput = await _dishNutritionRegression.predictNutrition(nutritionInput);
-      log("Nutrition Result: Cal=${nutritionOutput.calories.toStringAsFixed(1)}, Mass=${nutritionOutput.mass.toStringAsFixed(1)}g, Fat=${nutritionOutput.fat.toStringAsFixed(1)}, Carbs=${nutritionOutput.carbs.toStringAsFixed(1)}, Protein=${nutritionOutput.protein.toStringAsFixed(1)}");
+      // --- تشغيل النماذج ---
+      log("Running classification model...");
+      ClassificationModelOutput classificationOutput = await _dishClassification.classifyDish(classificationInput);
+      log('Classification Result: ${classificationOutput.dishName} (Conf: ${classificationOutput.confidence})');
+      if (classificationOutput.dishName.contains("Error"))
+        throw Exception("فشل التصنيف: ${classificationOutput.dishName}");
 
-      if (nutritionOutput.calories <= 0 && nutritionOutput.mass <= 0) {
-        throw Exception("Nutrition analysis failed to produce valid results.");
+      log("Running nutrition model...");
+      NutritionModelOutput nutritionOutput = await _dishNutritionRegression.predictNutrition(nutritionInput);
+      log('Nutrition Result: Cal=${nutritionOutput.calories.toStringAsFixed(1)}, Mass=${nutritionOutput.mass.toStringAsFixed(1)}g, Fat=${nutritionOutput.fat.toStringAsFixed(1)}g, Carbs=${nutritionOutput.carbs.toStringAsFixed(1)}g, Protein=${nutritionOutput.protein.toStringAsFixed(1)}g');
+      if (nutritionOutput.calories <= 0 &&
+          nutritionOutput.mass <= 0 &&
+          nutritionOutput.fat <= 0 &&
+          nutritionOutput.carbs <= 0 &&
+          nutritionOutput.protein <= 0) {
+        log("Warning: Nutrition analysis resulted in zero or invalid values.");
+        throw Exception("فشل تحليل التغذية. حاول بصورة أوضح.");
       }
 
-      // حفظ بيانات الوجبة في السجل
+      log("Saving data to history...");
       final newEntry = HistoryEntry(
         imagePath: _capturedImage!.path,
         dishName: classificationOutput.dishName,
@@ -231,9 +149,8 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       historyEntries.add(newEntry);
       await HistoryStorage.saveHistory(historyEntries);
       log("Meal data saved to history.");
-
-      _showInfoSnackBar("Analysis complete!");
-
+      _showToast("اكتمل التحليل!", Colors.green);
+      log("Navigating to ResultsScreen...");
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -248,54 +165,120 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
             protein: nutritionOutput.protein,
           ),
         ),
-      );
-      log("Navigated to ResultsScreen.");
+      ).then((_) {
+        if (mounted) {
+          setState(() { _isProcessing = false; });
+        }
+      });
+      log("Navigation initiated.");
     } catch (e) {
-      log("Error in _processAndProceed: $e");
-      _showErrorSnackBar('Processing failed: ${e.toString().split(':').last.trim()}');
+      log('Error in _processAndProceed: $e');
+      _showToast('فشل التحليل: ${e.toString()}', Colors.redAccent);
       if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
+        setState(() { _isProcessing = false; });
       }
     } finally {
       log("Processing pipeline finished.");
     }
   }
 
-  // دوال مساعدة لعرض SnackBar للمعلومات
-  void _showInfoSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 2),
-          backgroundColor: Colors.blueGrey,
-        ),
-      );
+  void _showToast(String message, Color backgroundColor) {
+    if (fToast == null) return;
+    Widget toast = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(25.0),
+        color: backgroundColor.withOpacity(0.85),
+      ),
+      child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 15)),
+    );
+    fToast?.showToast(child: toast, gravity: ToastGravity.BOTTOM, toastDuration: const Duration(seconds: 2));
+  }
+
+  Future<void> _toggleFlash() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      log("Flash toggle failed: Camera not initialized.");
+      return;
+    }
+    try {
+      await _initializeControllerFuture;
+      final currentMode = _cameraController!.value.flashMode;
+      final nextMode = currentMode == FlashMode.off ? FlashMode.torch : FlashMode.off;
+      await _cameraController!.setFlashMode(nextMode);
+      _isFlashOn = nextMode == FlashMode.torch;
+      if (mounted) setState(() {});
+      log("Flash mode set to: $nextMode");
+    } catch (e) {
+      log('Error toggling flash: $e');
+      _showToast('فشل تغيير الفلاش', Colors.redAccent);
     }
   }
 
-  void _showErrorSnackBar(String message) {
+  Future<void> _captureImage() async {
+    if (_isProcessing || _cameraController == null || !_cameraController!.value.isInitialized) {
+      log("Capture prevented: Processing=$_isProcessing, CameraReady=${_cameraController?.value.isInitialized}");
+      if (_cameraController == null || !_cameraController!.value.isInitialized)
+        _showToast('الكاميرا غير جاهزة', Colors.orange);
+      return;
+    }
+    try {
+      await _initializeControllerFuture;
+      log("Taking picture...");
+      final image = await _cameraController!.takePicture();
+      _capturedImage = File(image.path);
+      _lastImageFile = _capturedImage;
+      log("Picture taken successfully: ${image.path}");
+      if (mounted) setState(() {});
+      _showToast("تم التقاط الصورة!", Colors.blueGrey);
+    } catch (e) {
+      log('Error capturing image: $e');
+      _showToast('فشل التقاط الصورة', Colors.redAccent);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    if (_isProcessing) return;
+    try {
+      log("Picking image from gallery...");
+      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      if (pickedFile != null) {
+        _capturedImage = File(pickedFile.path);
+        _lastImageFile = _capturedImage;
+        log("Image picked successfully: ${pickedFile.path}");
+        if (mounted) setState(() {});
+        _showToast("تم اختيار الصورة!", Colors.blueGrey);
+      } else {
+        log("Image picking cancelled by user.");
+      }
+    } catch (e) {
+      log('Error picking image: $e');
+      _showToast('فشل اختيار الصورة', Colors.redAccent);
+    }
+  }
+
+  void _discardImage() {
+    log("Discarding captured image.");
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 4),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      setState(() {
+        _capturedImage = null;
+        _isProcessing = false;
+      });
     }
   }
 
   @override
   void dispose() {
     log("Disposing CustomCameraScreen.");
-    _initializeControllerFuture.then((value) {
-      _cameraController.dispose();
-      log("Camera controller disposed.");
-    }).catchError((e) {
-      log("Error disposing camera controller (possibly never initialized): $e");
+    Future.microtask(() async {
+      if (_initializeControllerFuture != null) {
+        try {
+          await _initializeControllerFuture!;
+          await _cameraController?.dispose();
+          log("Camera controller disposed.");
+        } catch (e) {
+          log("Error disposing camera controller: $e");
+        }
+      }
     });
     _dishClassification.close();
     _dishNutritionRegression.close();
@@ -305,173 +288,191 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final previewSize = screenWidth * 0.9;
-
+    final screenHeight = MediaQuery.of(context).size.height;
+    final double squareSize = screenWidth;
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.close),
+          icon: Container(child: const Icon(Icons.close, color: Colors.white)),
           onPressed: _isProcessing ? null : () => Navigator.pop(context),
         ),
-        title: const Text('Take a Picture'),
-        centerTitle: true,
         actions: [
           FutureBuilder<void>(
               future: _initializeControllerFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.done &&
-                    _cameraController.value.isInitialized &&
-                    _cameraController.value.flashMode != FlashMode.off &&
-                    _cameraController.value.flashMode != FlashMode.auto) {
+                    _cameraController != null &&
+                    _cameraController!.value.isInitialized &&
+                    _cameraController!.value.flashMode != FlashMode.off) {
+                  // زر الفلاش
                   return IconButton(
-                    icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off),
+                    icon: const Icon(Icons.flash_on, color: Colors.white),
                     onPressed: _isProcessing ? null : _toggleFlash,
                   );
                 }
                 return const SizedBox.shrink();
-              }),
+              }
+          )
         ],
-        backgroundColor: AppConstants.primaryColor,
       ),
+      backgroundColor: Colors.black,
       body: FutureBuilder<void>(
         future: _initializeControllerFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            if (_capturedImage == null) {
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  SizedBox(
-                    width: previewSize,
-                    height: previewSize,
-                    child: ClipRect(
-                      child: OverflowBox(
-                        alignment: Alignment.center,
-                        child: FittedBox(
-                          fit: BoxFit.cover,
-                          child: SizedBox(
-                            width: screenWidth,
-                            height: screenWidth / _cameraController.value.aspectRatio,
-                            child: CameraPreview(_cameraController),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // رسم التراكب مع إطار الكاميرا وأحرف L في كل زاوية
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: CameraOverlayPainter(),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 30,
-                    left: 0,
-                    right: 0,
-                    child: Column(
-                      children: [
-                        if (_isProcessing)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 15.0),
-                            child: CircularProgressIndicator(color: Colors.white),
-                          ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.photo_library, color: Colors.white, size: 30),
-                              onPressed: _isProcessing ? null : _pickImage,
-                            ),
-                            FloatingActionButton(
-                              onPressed: _isProcessing ? null : _captureImage,
-                              backgroundColor: Colors.white,
-                              child: const Icon(Icons.camera_alt, color: Colors.black, size: 35),
-                            ),
-                            const SizedBox(width: 48),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            } else {
-              return Column(
-                children: [
-                  Expanded(
-                    child: Image.file(
-                      _capturedImage!,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  if (_isProcessing)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 16.0),
-                      child: CircularProgressIndicator(),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 20.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent,
-                            padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 12),
-                          ),
-                          onPressed: _isProcessing ? null : _discardImage,
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          label: const Text('Discard', style: TextStyle(color: Colors.white, fontSize: 16)),
-                        ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green,
-                            padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 12),
-                          ),
-                          onPressed: _isProcessing ? null : _processAndProceed,
-                          icon: const Icon(Icons.check, color: Colors.white),
-                          label: const Text('Analyze', style: TextStyle(color: Colors.white, fontSize: 16)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }
-          } else {
+          if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
+          if (snapshot.hasError || _cameraController == null || !_cameraController!.value.isInitialized) {
+            log("FutureBuilder error state: ${snapshot.error}");
+            return Center(child: Text(
+                snapshot.error?.toString() ?? 'فشل تهيئة الكاميرا',
+                style: const TextStyle(color: Colors.white)
+            ));
+          }
+          return Stack(
+            alignment: Alignment.center,
+            children: [
+              (_capturedImage == null)
+                  ? SizedBox(
+                width: screenWidth,
+                height: screenHeight,
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: screenWidth,
+                    height: screenWidth / _cameraController!.value.aspectRatio,
+                    child: CameraPreview(_cameraController!),
+                  ),
+                ),
+              )
+                  : Container(
+                color: Colors.black,
+                width: double.infinity,
+                height: double.infinity,
+                child: Column(
+                  children: [
+                    Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Image.file(
+                            _capturedImage!,
+                            fit: BoxFit.contain,
+                          ),
+                        )),
+                  ],
+                ),
+              ),
+              if (_capturedImage == null)
+                SizedBox(
+                    width: squareSize,
+                    height: squareSize,
+                    child: CustomPaint(
+                      painter: CameraOverlayPainter(),
+                    )),
+              Positioned(
+                bottom: 30,
+                left: 0,
+                right: 0,
+                child: (_capturedImage == null)
+                    ? Column(
+                  children: [
+                    if (_isProcessing)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 15.0),
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.photo_library),
+                          onPressed: _isProcessing ? null : _pickImage,
+                        ),
+                        GestureDetector(
+                          onTap: _isProcessing ? null : _captureImage,
+                          child: Container(
+                            width: 70,
+                            height: 70,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white,
+                            ),
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.camera_alt, size: 30, color: Colors.black),
+                          ),
+                        ),
+                        const SizedBox(width: 75),
+                      ],
+                    ),
+                  ],
+                )
+                    : Column(
+                  children: [
+                    if (_isProcessing)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton.icon(
+                            style: TextButton.styleFrom(foregroundColor: Colors.white),
+                            onPressed: _isProcessing ? null : _discardImage,
+                            icon: const Icon(Icons.close),
+                            label: const Text('إلغاء', style: TextStyle(fontSize: 16)),
+                          ),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
+                            onPressed: _isProcessing ? null : _processAndProceed,
+                            icon: const Icon(Icons.check),
+                            label: const Text('تحليل', style: TextStyle(fontSize: 16)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
         },
       ),
     );
   }
 }
 
-/// CustomPainter لرسم تراكب إطار الكاميرا مع أحرف L في كل زاوية
 class CameraOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
+    final double boxSize = size.width;
+    final double strokeWidth = 3;
+    final Color lineColor = Colors.white.withOpacity(0.7);
+    final double cornerLength = 30.0;
+
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.7)
-      ..strokeWidth = 3
+      ..color = lineColor
+      ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
-    final double cornerLength = 20.0;
 
-    // الزاوية العلوية اليسرى
-    canvas.drawLine(Offset(0, 0), Offset(cornerLength, 0), paint);
-    canvas.drawLine(Offset(0, 0), Offset(0, cornerLength), paint);
-
-    // الزاوية العلوية اليمنى
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width - cornerLength, 0), paint);
-    canvas.drawLine(Offset(size.width, 0), Offset(size.width, cornerLength), paint);
-
-    // الزاوية السفلية اليسرى
-    canvas.drawLine(Offset(0, size.height), Offset(0, size.height - cornerLength), paint);
-    canvas.drawLine(Offset(0, size.height), Offset(cornerLength, size.height), paint);
-
-    // الزاوية السفلية اليمنى
-    canvas.drawLine(Offset(size.width, size.height), Offset(size.width - cornerLength, size.height), paint);
-    canvas.drawLine(Offset(size.width, size.height), Offset(size.width, size.height - cornerLength), paint);
+    // رسم الزوايا
+    canvas.drawLine(const Offset(0, 0), Offset(cornerLength, 0), paint);
+    canvas.drawLine(const Offset(0, 0), Offset(0, cornerLength), paint);
+    canvas.drawLine(Offset(boxSize, 0), Offset(boxSize - cornerLength, 0), paint);
+    canvas.drawLine(Offset(boxSize, 0), Offset(boxSize, cornerLength), paint);
+    canvas.drawLine(Offset(0, boxSize), Offset(cornerLength, boxSize), paint);
+    canvas.drawLine(Offset(0, boxSize), Offset(0, boxSize - cornerLength), paint);
+    canvas.drawLine(Offset(boxSize, boxSize), Offset(boxSize - cornerLength, boxSize), paint);
+    canvas.drawLine(Offset(boxSize, boxSize), Offset(boxSize, boxSize - cornerLength), paint);
   }
 
   @override

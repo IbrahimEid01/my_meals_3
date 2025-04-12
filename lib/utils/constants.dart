@@ -24,11 +24,14 @@ class AppConstants {
   static const double unNormCarbsFactor = 844.568603515625;
   static const double unNormProteinFactor = 147.491821;
 
-
   static const int segmentationFoodClassIndex = 151; // تأكد من صحة هذا الفهرس لنموذجك!
   // ألوان أو ثوابت أخرى للتطبيق
   static const Color primaryColor = Colors.teal; // مثال
 
+
+  // تطبيع خاص بـ Nutrition5k
+  static const List<double> nutritionMean = [0.485, 0.456, 0.406]; // متوسطات ImageNet
+  static const List<double> nutritionStd = [0.229, 0.224, 0.225]; // انحرافات ImageNet
 
   // ثوابت SharedPreferences (تمت إضافتها)
   static const String prefLanguageKey = 'pref_language';
