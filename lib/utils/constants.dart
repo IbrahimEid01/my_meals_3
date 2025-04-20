@@ -5,7 +5,7 @@ class AppConstants {
   // أبعاد مدخلات النماذج (تم التحديث)
   static const int classificationInputSize = 250;
   static const int nutritionInputSize = 224;
-  static const int segmentationInputSize = 257; // إذا كنت ستستخدم DeepLabV3 لاحقًا
+  static const int segmentationInputSize = 513; // إذا كنت ستستخدم DeepLabV3 لاحقًا
 
   // مسارات النماذج وملف التسميات (تأكد من تطابقها مع مجلداتك)
   static const String classificationModelPath = 'assets/models2/classification_model.tflite';

@@ -35,7 +35,8 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
   bool _isFlashOn = false;
   File? _lastImageFile;
   final DishClassification _dishClassification = DishClassification();
-  final DishNutritionRegression _dishNutritionRegression = DishNutritionRegression();
+  final DishNutritionRegression _dishNutritionRegression =
+      DishNutritionRegression();
   FToast? fToast;
 
   @override
@@ -58,8 +59,9 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
         throw Exception("No cameras available on this device.");
       }
       final firstCamera = cameras.firstWhere(
-              (camera) => camera.lensDirection == CameraLensDirection.back,
-          orElse: () => cameras.first);
+        (camera) => camera.lensDirection == CameraLensDirection.back,
+        orElse: () => cameras.first,
+      );
 
       _cameraController = CameraController(
         firstCamera,
@@ -92,37 +94,48 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       final bytes = await _capturedImage!.readAsBytes();
 
       // --- المعالجة لنموذج التصنيف (250×250 بدون تقسيم) ---
-      log("Preprocessing for Classification (${AppConstants.classificationInputSize}x${AppConstants.classificationInputSize})...");
+      log(
+        "Preprocessing for Classification (${AppConstants.classificationInputSize}x${AppConstants.classificationInputSize})...",
+      );
       Float32List inputDataClass = await DeepLearning.loadImageAndPreprocess(
-          bytes,
-          AppConstants.classificationInputSize,
-          applySegmentation: false
+        bytes,
+        AppConstants.classificationInputSize,
+        applySegmentation: false,
       );
       final classificationInput = ClassificationModelInput(
-          imageData: inputDataClass.buffer.asFloat32List().cast<double>().toList()
+        imageData:
+            inputDataClass.buffer.asFloat32List().cast<double>().toList(),
       );
 
       // --- المعالجة لنموذج التغذية (224×224 مع تقسيم لتفريغ الخلفية) ---
-      log("Preprocessing for Nutrition (${AppConstants.nutritionInputSize}x${AppConstants.nutritionInputSize}) with segmentation...");
+      log(
+        "Preprocessing for Nutrition (${AppConstants.nutritionInputSize}x${AppConstants.nutritionInputSize}) with segmentation...",
+      );
       Float32List inputDataNutr = await DeepLearning.loadImageAndPreprocess(
-          bytes,
-          AppConstants.nutritionInputSize,
-          applySegmentation: true
+        bytes,
+        AppConstants.nutritionInputSize,
+        applySegmentation: true,
       );
       final nutritionInput = NutritionModelInput(
-          imageData: inputDataNutr.buffer.asFloat32List().cast<double>().toList()
+        imageData: inputDataNutr.buffer.asFloat32List().cast<double>().toList(),
       );
 
       // --- تشغيل النماذج ---
       log("Running classification model...");
-      ClassificationModelOutput classificationOutput = await _dishClassification.classifyDish(classificationInput);
-      log('Classification Result: ${classificationOutput.dishName} (Conf: ${classificationOutput.confidence})');
+      ClassificationModelOutput classificationOutput = await _dishClassification
+          .classifyDish(classificationInput);
+      log(
+        'Classification Result: ${classificationOutput.dishName} (Conf: ${classificationOutput.confidence})',
+      );
       if (classificationOutput.dishName.contains("Error"))
         throw Exception("فشل التصنيف: ${classificationOutput.dishName}");
 
       log("Running nutrition model...");
-      NutritionModelOutput nutritionOutput = await _dishNutritionRegression.predictNutrition(nutritionInput);
-      log('Nutrition Result: Cal=${nutritionOutput.calories.toStringAsFixed(1)}, Mass=${nutritionOutput.mass.toStringAsFixed(1)}g, Fat=${nutritionOutput.fat.toStringAsFixed(1)}g, Carbs=${nutritionOutput.carbs.toStringAsFixed(1)}g, Protein=${nutritionOutput.protein.toStringAsFixed(1)}g');
+      NutritionModelOutput nutritionOutput = await _dishNutritionRegression
+          .predictNutrition(nutritionInput);
+      log(
+        'Nutrition Result: Cal=${nutritionOutput.calories.toStringAsFixed(1)}, Mass=${nutritionOutput.mass.toStringAsFixed(1)}g, Fat=${nutritionOutput.fat.toStringAsFixed(1)}g, Carbs=${nutritionOutput.carbs.toStringAsFixed(1)}g, Protein=${nutritionOutput.protein.toStringAsFixed(1)}g',
+      );
       if (nutritionOutput.calories <= 0 &&
           nutritionOutput.mass <= 0 &&
           nutritionOutput.fat <= 0 &&
@@ -154,20 +167,23 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => ResultsScreen(
-            imageFile: _capturedImage!,
-            foodClass: classificationOutput.dishName,
-            confidence: classificationOutput.confidence,
-            calories: nutritionOutput.calories,
-            mass: nutritionOutput.mass,
-            fat: nutritionOutput.fat,
-            carbs: nutritionOutput.carbs,
-            protein: nutritionOutput.protein,
-          ),
+          builder:
+              (context) => ResultsScreen(
+                imageFile: _capturedImage!,
+                foodClass: classificationOutput.dishName,
+                confidence: classificationOutput.confidence,
+                calories: nutritionOutput.calories,
+                mass: nutritionOutput.mass,
+                fat: nutritionOutput.fat,
+                carbs: nutritionOutput.carbs,
+                protein: nutritionOutput.protein,
+              ),
         ),
       ).then((_) {
         if (mounted) {
-          setState(() { _isProcessing = false; });
+          setState(() {
+            _isProcessing = false;
+          });
         }
       });
       log("Navigation initiated.");
@@ -175,7 +191,9 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
       log('Error in _processAndProceed: $e');
       _showToast('فشل التحليل: ${e.toString()}', Colors.redAccent);
       if (mounted) {
-        setState(() { _isProcessing = false; });
+        setState(() {
+          _isProcessing = false;
+        });
       }
     } finally {
       log("Processing pipeline finished.");
@@ -190,9 +208,16 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
         borderRadius: BorderRadius.circular(25.0),
         color: backgroundColor.withOpacity(0.85),
       ),
-      child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 15)),
+      child: Text(
+        message,
+        style: const TextStyle(color: Colors.white, fontSize: 15),
+      ),
     );
-    fToast?.showToast(child: toast, gravity: ToastGravity.BOTTOM, toastDuration: const Duration(seconds: 2));
+    fToast?.showToast(
+      child: toast,
+      gravity: ToastGravity.BOTTOM,
+      toastDuration: const Duration(seconds: 2),
+    );
   }
 
   Future<void> _toggleFlash() async {
@@ -203,7 +228,8 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
     try {
       await _initializeControllerFuture;
       final currentMode = _cameraController!.value.flashMode;
-      final nextMode = currentMode == FlashMode.off ? FlashMode.torch : FlashMode.off;
+      final nextMode =
+          currentMode == FlashMode.off ? FlashMode.torch : FlashMode.off;
       await _cameraController!.setFlashMode(nextMode);
       _isFlashOn = nextMode == FlashMode.torch;
       if (mounted) setState(() {});
@@ -215,8 +241,12 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
   }
 
   Future<void> _captureImage() async {
-    if (_isProcessing || _cameraController == null || !_cameraController!.value.isInitialized) {
-      log("Capture prevented: Processing=$_isProcessing, CameraReady=${_cameraController?.value.isInitialized}");
+    if (_isProcessing ||
+        _cameraController == null ||
+        !_cameraController!.value.isInitialized) {
+      log(
+        "Capture prevented: Processing=$_isProcessing, CameraReady=${_cameraController?.value.isInitialized}",
+      );
       if (_cameraController == null || !_cameraController!.value.isInitialized)
         _showToast('الكاميرا غير جاهزة', Colors.orange);
       return;
@@ -240,7 +270,9 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
     if (_isProcessing) return;
     try {
       log("Picking image from gallery...");
-      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
       if (pickedFile != null) {
         _capturedImage = File(pickedFile.path);
         _lastImageFile = _capturedImage;
@@ -301,21 +333,21 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
         ),
         actions: [
           FutureBuilder<void>(
-              future: _initializeControllerFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.done &&
-                    _cameraController != null &&
-                    _cameraController!.value.isInitialized &&
-                    _cameraController!.value.flashMode != FlashMode.off) {
-                  // زر الفلاش
-                  return IconButton(
-                    icon: const Icon(Icons.flash_on, color: Colors.white),
-                    onPressed: _isProcessing ? null : _toggleFlash,
-                  );
-                }
-                return const SizedBox.shrink();
+            future: _initializeControllerFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.done &&
+                  _cameraController != null &&
+                  _cameraController!.value.isInitialized &&
+                  _cameraController!.value.flashMode != FlashMode.off) {
+                // زر الفلاش
+                return IconButton(
+                  icon: const Icon(Icons.flash_on, color: Colors.white),
+                  onPressed: _isProcessing ? null : _toggleFlash,
+                );
               }
-          )
+              return const SizedBox.shrink();
+            },
+          ),
         ],
       ),
       backgroundColor: Colors.black,
@@ -325,123 +357,157 @@ class _CustomCameraScreenState extends State<CustomCameraScreen> {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.hasError || _cameraController == null || !_cameraController!.value.isInitialized) {
+          if (snapshot.hasError ||
+              _cameraController == null ||
+              !_cameraController!.value.isInitialized) {
             log("FutureBuilder error state: ${snapshot.error}");
-            return Center(child: Text(
+            return Center(
+              child: Text(
                 snapshot.error?.toString() ?? 'فشل تهيئة الكاميرا',
-                style: const TextStyle(color: Colors.white)
-            ));
+                style: const TextStyle(color: Colors.white),
+              ),
+            );
           }
           return Stack(
             alignment: Alignment.center,
             children: [
               (_capturedImage == null)
                   ? SizedBox(
-                width: screenWidth,
-                height: screenHeight,
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
                     width: screenWidth,
-                    height: screenWidth / _cameraController!.value.aspectRatio,
-                    child: CameraPreview(_cameraController!),
-                  ),
-                ),
-              )
+                    height: screenHeight,
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: screenWidth,
+                        height:
+                            screenWidth / _cameraController!.value.aspectRatio,
+                        child: CameraPreview(_cameraController!),
+                      ),
+                    ),
+                  )
                   : Container(
-                color: Colors.black,
-                width: double.infinity,
-                height: double.infinity,
-                child: Column(
-                  children: [
-                    Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Image.file(
-                            _capturedImage!,
-                            fit: BoxFit.contain,
+                    color: Colors.black,
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Image.file(
+                              _capturedImage!,
+                              fit: BoxFit.contain,
+                            ),
                           ),
-                        )),
-                  ],
-                ),
-              ),
+                        ),
+                      ],
+                    ),
+                  ),
               if (_capturedImage == null)
                 SizedBox(
-                    width: squareSize,
-                    height: squareSize,
-                    child: CustomPaint(
-                      painter: CameraOverlayPainter(),
-                    )),
+                  width: squareSize,
+                  height: squareSize,
+                  child: CustomPaint(painter: CameraOverlayPainter()),
+                ),
               Positioned(
                 bottom: 30,
                 left: 0,
                 right: 0,
-                child: (_capturedImage == null)
-                    ? Column(
-                  children: [
-                    if (_isProcessing)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 15.0),
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.photo_library),
-                          onPressed: _isProcessing ? null : _pickImage,
-                        ),
-                        GestureDetector(
-                          onTap: _isProcessing ? null : _captureImage,
-                          child: Container(
-                            width: 70,
-                            height: 70,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
+                child:
+                    (_capturedImage == null)
+                        ? Column(
+                          children: [
+                            if (_isProcessing)
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 15.0),
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                ),
+                              ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.photo_library),
+                                  onPressed: _isProcessing ? null : _pickImage,
+                                ),
+                                GestureDetector(
+                                  onTap: _isProcessing ? null : _captureImage,
+                                  child: Container(
+                                    width: 70,
+                                    height: 70,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white,
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.camera_alt,
+                                      size: 30,
+                                      color: Colors.black,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 75),
+                              ],
                             ),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.camera_alt, size: 30, color: Colors.black),
-                          ),
+                          ],
+                        )
+                        : Column(
+                          children: [
+                            if (_isProcessing)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 20.0,
+                                horizontal: 20,
+                              ),
+                              child: Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  TextButton.icon(
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    onPressed:
+                                        _isProcessing ? null : _discardImage,
+                                    icon: const Icon(Icons.close),
+                                    label: const Text(
+                                      'إلغاء',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                  ),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 30,
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                    ),
+                                    onPressed:
+                                        _isProcessing
+                                            ? null
+                                            : _processAndProceed,
+                                    icon: const Icon(Icons.check),
+                                    label: const Text(
+                                      'تحليل',
+                                      style: TextStyle(fontSize: 16),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 75),
-                      ],
-                    ),
-                  ],
-                )
-                    : Column(
-                  children: [
-                    if (_isProcessing)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16.0),
-                        child: CircularProgressIndicator(),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 20.0, horizontal: 20),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          TextButton.icon(
-                            style: TextButton.styleFrom(foregroundColor: Colors.white),
-                            onPressed: _isProcessing ? null : _discardImage,
-                            icon: const Icon(Icons.close),
-                            label: const Text('إلغاء', style: TextStyle(fontSize: 16)),
-                          ),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.green,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
-                            onPressed: _isProcessing ? null : _processAndProceed,
-                            icon: const Icon(Icons.check),
-                            label: const Text('تحليل', style: TextStyle(fontSize: 16)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           );
@@ -459,20 +525,37 @@ class CameraOverlayPainter extends CustomPainter {
     final Color lineColor = Colors.white.withOpacity(0.7);
     final double cornerLength = 30.0;
 
-    final paint = Paint()
-      ..color = lineColor
-      ..strokeWidth = strokeWidth
-      ..style = PaintingStyle.stroke;
+    final paint =
+        Paint()
+          ..color = lineColor
+          ..strokeWidth = strokeWidth
+          ..style = PaintingStyle.stroke;
 
     // رسم الزوايا
     canvas.drawLine(const Offset(0, 0), Offset(cornerLength, 0), paint);
     canvas.drawLine(const Offset(0, 0), Offset(0, cornerLength), paint);
-    canvas.drawLine(Offset(boxSize, 0), Offset(boxSize - cornerLength, 0), paint);
+    canvas.drawLine(
+      Offset(boxSize, 0),
+      Offset(boxSize - cornerLength, 0),
+      paint,
+    );
     canvas.drawLine(Offset(boxSize, 0), Offset(boxSize, cornerLength), paint);
     canvas.drawLine(Offset(0, boxSize), Offset(cornerLength, boxSize), paint);
-    canvas.drawLine(Offset(0, boxSize), Offset(0, boxSize - cornerLength), paint);
-    canvas.drawLine(Offset(boxSize, boxSize), Offset(boxSize - cornerLength, boxSize), paint);
-    canvas.drawLine(Offset(boxSize, boxSize), Offset(boxSize, boxSize - cornerLength), paint);
+    canvas.drawLine(
+      Offset(0, boxSize),
+      Offset(0, boxSize - cornerLength),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(boxSize, boxSize),
+      Offset(boxSize - cornerLength, boxSize),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(boxSize, boxSize),
+      Offset(boxSize, boxSize - cornerLength),
+      paint,
+    );
   }
 
   @override
