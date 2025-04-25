@@ -15,6 +15,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
 
+
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_11.toString()
     }
@@ -32,6 +33,12 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+    aaptOptions {
+        noCompress("tflite")
+        noCompress("bin")
+        noCompress("lite")
+    }
+
 }
 
 
